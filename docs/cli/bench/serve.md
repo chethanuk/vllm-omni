@@ -523,3 +523,90 @@ Explanation:
   name ITL in text stage for easier mapping.
 
 </details>
+
+### Diffusion Video Benchmark (Wan2.2-TI2V-5B)
+
+Wan2.2-TI2V-5B (`Wan-AI/Wan2.2-TI2V-5B-Diffusers`) is a unified text+image-to-video
+model served through the async video API (`/v1/videos`). The dedicated serving
+benchmark is `benchmarks/diffusion/diffusion_benchmark_serving.py`; the mapping
+below shows how its flags correspond to native `vllm bench serve --omni` flags
+where the CLI overlaps, verified against
+`vllm_omni/entrypoints/cli/benchmark/cli_args.py` and
+`benchmarks/diffusion/diffusion_benchmark_serving.py`.
+
+Start the server:
+
+```bash
+vllm serve Wan-AI/Wan2.2-TI2V-5B-Diffusers --omni --port 8091
+# single-GPU default; scale with --tensor-parallel-size / deploy yaml for A14B MoE
+```
+
+Traditional diffusion benchmark (supported today):
+
+```bash
+python3 benchmarks/diffusion/diffusion_benchmark_serving.py \
+  --base-url http://localhost:8091 \
+  --model Wan-AI/Wan2.2-TI2V-5B-Diffusers \
+  --endpoint /v1/videos \
+  --task ti2v \
+  --dataset vbench \
+  --num-prompts 10 \
+  --max-concurrency 2 \
+  --width 832 --height 480 --num-frames 81 --fps 16 --num-inference-steps 50
+```
+
+For heterogeneous or large-scale runs use `--dataset random` with
+`--random-request-config` or `--dataset trace` (see `benchmarks/diffusion/README.md`):
+
+```bash
+python3 benchmarks/diffusion/diffusion_benchmark_serving.py \
+  --base-url http://localhost:8091 \
+  --model Wan-AI/Wan2.2-TI2V-5B-Diffusers \
+  --endpoint /v1/videos \
+  --task ti2v \
+  --dataset random \
+  --num-prompts 20 \
+  --max-concurrency 4 \
+  --enable-negative-prompt \
+  --random-request-config '[{"width":832,"height":480,"num_frames":81,"fps":16,"num_inference_steps":50,"weight":1}]'
+```
+
+Native `vllm bench serve --omni` shape (future — requires a `/v1/videos` backend in `vllm_omni/benchmarks/patch/patch.py`; no video backend is registered today, so keep the diffusion script for Wan2.2-TI2V-5B until then):
+
+```bash
+vllm bench serve --omni \
+  --base-url http://localhost:8091 \
+  --model Wan-AI/Wan2.2-TI2V-5B-Diffusers \
+  --endpoint /v1/videos \
+  --num-prompts 10 \
+  --max-concurrency 2 \
+  --request-rate inf \
+  --extra-body '{"width":832,"height":480,"num_frames":81,"fps":16,"num_inference_steps":50}'
+```
+
+Parameter mapping to `vllm bench serve --omni`:
+
+| `diffusion_benchmark_serving.py` | `vllm bench serve --omni` | Notes |
+|---|---|---|
+| `--base-url` / `--host` `--port` | `--base-url` or `--host` `--port` | Both resolve to the same server address. |
+| `--model` | `--model` | OpenAI-compatible model field. |
+| `--endpoint /v1/videos` | `--endpoint /v1/videos` (future — not yet registered in `vllm_omni/benchmarks/patch/patch.py`; only `openai-chat-omni`, `openai-image-edits-omni`, `openai-audio-speech`, `daily-omni`, `openai-realtime-duplex`/`openai-realtime-tts` are in `ASYNC_REQUEST_FUNCS`/`OPENAI_COMPATIBLE_BACKENDS` today — keep the diffusion script for `/v1/videos`) | Image tasks use `/v1/chat/completions`; video tasks use `/v1/videos`. |
+| `--task ti2v` (diffusion script only) | task is implied by endpoint/model/backend; no `--task` in native bench | TI2V is a video task (text+image conditioning) — see `benchmarks/diffusion/backends.py:backends_function_mapping["2v"]`. |
+| `--dataset vbench` / `trace` / `random` | `--dataset-name random` / `random-mm` / `sharegpt` / `hf` etc. | Diffusion script's `vbench`/`trace` loaders are diffusion-specific; the closest native synthetic mode is `--dataset-name random` (or `random-mm` for multimodal). |
+| `--num-prompts` | `--num-prompts` | Total requests to send. |
+| `--max-concurrency` | `--max-concurrency` | Cap on in-flight requests; warm the same shape with `--warmup-requests` / `--warmup-concurrency`. |
+| `--request-rate` | `--request-rate` | Poisson/gamma arrival; `inf` = burst at time 0. Matches `benchmarks/diffusion/diffusion_benchmark_serving.py:1497`. |
+| `--width` `--height` `--num-frames` `--fps` `--num-inference-steps` | `--extra-body '{"width":832,"height":480,"num_frames":81,"fps":16,"num_inference_steps":50}'` or dataset fields | Native bench passes generation knobs through `extra_body`/dataset; diffusion script has explicit flags. |
+| `--enable-negative-prompt` | prompt content | Diffusion script synthesizes negative prompts for `random`; native bench uses the prompt/dataset. |
+| `--random-request-config '[{"width":..,"weight":0.5},...]'` | `--random-mm-bucket-config` / `random` prefix/len flags | Different sampling config; see `docs/cli/bench/serve.md` Multi-Modal section and `vllm_omni/entrypoints/cli/benchmark/cli_args.py:update_omni_help`. |
+| `--output-file` / `--save-dir` | `--save-result` `--save-detailed` `--result-dir` `--result-filename` | Result persistence flags differ in name but same purpose. |
+
+> **Current status:** `vllm bench serve --omni` registers `openai-chat-omni`,
+> `openai-image-edits-omni` (see `--image-edits-bot-task` in
+> `vllm_omni/entrypoints/cli/benchmark/cli_args.py:add_diffusion_cli_args`),
+> `openai-audio-speech`, `daily-omni`, and `openai-realtime-duplex` — it does
+> not yet register a `/v1/videos` diffusion video backend. For
+> Wan2.2-TI2V-5B keep using `benchmarks/diffusion/diffusion_benchmark_serving.py`
+> (the workflow in `benchmarks/diffusion/README.md`); use the table above when
+> translating concurrency/rate/endpoint settings to native flags for Omni or
+> future video-bench support.

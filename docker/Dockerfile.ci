@@ -69,6 +69,12 @@ RUN uv pip install --system -e ".[dev]"
 # the heavy base image to build it. Editable install above already
 # registered APP_DIR, so we must not re-pip-install after COPY.
 FROM deps
+# vllm-omni#1790: Clear LD_LIBRARY_PATH inherited from vllm/vllm-openai base
+# image. The base prepends /usr/local/cuda/lib64 which shadows torch's bundled
+# nvidia-cublas and triggers CUBLAS_STATUS_INVALID_VALUE on large GEMMs
+# (e.g. BAGEL-7B-MoT lm_head with --quantization fp8).
+ENV LD_LIBRARY_PATH=""
+
 ARG APP_DIR=/opt/vllm-omni
 WORKDIR ${APP_DIR}
 

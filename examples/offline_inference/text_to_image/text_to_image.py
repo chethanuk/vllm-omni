@@ -558,7 +558,6 @@ def main():
         "vae_patch_parallel_size": args.vae_patch_parallel_size,
         "enable_expert_parallel": args.enable_expert_parallel,
         "enable_cpu_offload": args.enable_cpu_offload,
-        "mode": "text-to-image",
         "log_stats": args.log_stats,
         "enable_diffusion_pipeline_profiler": args.enable_diffusion_pipeline_profiler,
         "profiler_config": args.profiler_config,

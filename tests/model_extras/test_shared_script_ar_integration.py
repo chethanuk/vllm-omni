@@ -42,6 +42,8 @@ def test_text_to_image_only_builds_ar_inputs_for_ar_deployments(monkeypatch, tmp
     from PIL import Image
     from vllm import SamplingParams
 
+    from vllm_omni.config.omni_config import normalize_and_validate_diffusion_engine_ingress_kwargs
+
     module = _load_module("_shared_text_to_image_deploy", "examples/offline_inference/text_to_image/text_to_image.py")
     tokenizer_calls = _patch_tokenizer_loader(monkeypatch, module)
     monkeypatch.setattr(module, "get_ar_tokenizer_validator", lambda _: None)
@@ -59,9 +61,13 @@ def test_text_to_image_only_builds_ar_inputs_for_ar_deployments(monkeypatch, tmp
         captured.update(prompt=prompt, params=sampling_params_list)
         return [SimpleNamespace(images=[Image.new("RGB", (8, 8))])]
 
-    monkeypatch.setattr(
-        module, "Omni", lambda **kwargs: SimpleNamespace(default_sampling_params_list=defaults, generate=generate)
-    )
+    def create_omni(**kwargs):
+        # Exercise the real ingress validator so stale example-only options
+        # cannot silently pass this test while breaking model initialization.
+        normalize_and_validate_diffusion_engine_ingress_kwargs(kwargs, stage_id=0)
+        return SimpleNamespace(default_sampling_params_list=defaults, generate=generate)
+
+    monkeypatch.setattr(module, "Omni", create_omni)
     output = tmp_path / "output.png"
     monkeypatch.setattr(
         sys,

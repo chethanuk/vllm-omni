@@ -251,11 +251,12 @@ def _run_vllm_omni_hunyuan_image3_offline(*, model: str, deploy_config: str, out
             "--use-system-prompt",
             "en_unified",
             "--extra-body",
-            '{"bot_task": null}',
+            '{"bot_task": "none"}',
             "--trust-remote-code",
             "--model",
             model,
             "--enforce-eager",
+            "--enable-expert-parallel",
         ],
         check=True,
     )

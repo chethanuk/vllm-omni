@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM-Omni project
 
 import argparse
 import functools
@@ -723,7 +723,10 @@ def main():
     # stop-token-ids declaratively from the plain prompt + extra_body, so this
     # example stays model-agnostic. Models without one are untouched.
     ar_input_builder = get_ar_input_builder(model_class_name)
-    if ar_input_builder is not None:
+    # A model can also be deployed with only its diffusion stage. Keep those
+    # requests on the string-prompt path, as in the single-stage images API.
+    has_ar_stage = any(not isinstance(params, OmniDiffusionSamplingParams) for params in sampling_params_list)
+    if ar_input_builder is not None and has_ar_stage:
         _apply_ar_stage_inputs(
             ar_input_builder,
             model=args.model,
